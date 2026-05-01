@@ -1,0 +1,9 @@
+python-chess
+openai
+langchain
+fastapi
+uvicorn
+mcp
+python-dotenv
+pandas
+numpy
