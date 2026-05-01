@@ -1,184 +1,122 @@
-import chess
-import chess.svg
-import chess.pgn
-import io
-import json
-from mcp.server.fastapi import Context, Resource, Tool
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+"""
+Neuro-Symbolic Chess — MCP Server (System 2: Calculation & Guardrails).
 
-app = FastAPI(title="Neuro-Symbolic Chess MCP Server")
+Exposes the chess.* tool surface that mirrors Jerome's broker, so any
+MCP-aware client (Claude Code, Inspector, the LLM engine in this repo)
+can verify legality, list moves, parse PGNs, and render boards without
+ever risking an illegal play.
 
-class MoveRequest(BaseModel):
-    fen: str = Field(..., description="FEN of the position before the move")
-    move: str = Field(..., description="Proposed move in SAN, UCI or plain notation")
+Run as:
+    python mcp-server/server.py             # stdio transport (for MCP clients)
+    python mcp-server/server.py --http      # HTTP transport on :8000
 
-class LegalMovesRequest(BaseModel):
-    fen: str = Field(..., description="FEN of the position")
-    from_square: Optional[str] = Field(None, alias="from", description="Optional from-square ('e2'); restricts the list to moves leaving that square")
+The pure logic lives in `chess_core.guardrails`. This file is just the
+MCP/HTTP wrapper.
+"""
 
-class PgnRequest(BaseModel):
-    pgn: str = Field(..., description="PGN string to parse")
+from __future__ import annotations
 
-class HistoryRequest(BaseModel):
-    moves: List[str] = Field(..., description="List of moves in SAN or UCI")
-    initial_fen: Optional[str] = Field(chess.STARTING_FEN, description="Optional starting position (default is standard start)")
+import argparse
+import sys
+from pathlib import Path
+from typing import Optional
 
-def get_game_status(board: chess.Board):
-    if board.is_checkmate():
-        return "checkmate"
-    if board.is_stalemate():
-        return "stalemate"
-    if board.is_insufficient_material():
-        return "insufficient_material"
-    if board.is_seventyfive_moves():
-        return "draw_75_move"
-    if board.is_fivefold_repetition():
-        return "draw_fivefold_repetition"
-    if board.is_check():
-        return "check"
-    return "normal"
+# Make the repo root importable so `chess_core` resolves whether the
+# server is launched from the repo root or from inside `mcp-server/`.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-@app.post("/tools/chess.move")
-async def chess_move(request: MoveRequest):
-    """
-    Verify a chess move against a position and, if legal, return the resulting FEN.
-    """
-    try:
-        board = chess.Board(request.fen)
-    except ValueError as e:
-        return {"isError": True, "content": [{"type": "text", "text": f"Invalid FEN: {str(e)}"}]}
+from mcp.server.fastmcp import FastMCP  # noqa: E402
 
-    try:
-        # Try parsing as SAN first, then UCI
-        try:
-            move = board.parse_san(request.move)
-        except ValueError:
-            move = board.parse_uci(request.move)
-    except ValueError:
-        # If both fail, look for alternatives
-        legal_moves = list(board.legal_moves)
-        alternatives = [{"san": board.san(m), "uci": m.uci()} for m in legal_moves[:6]]
-        return {
-            "ok": False,
-            "reason": f"'{request.move}' is illegal or unrecognized in this position.",
-            "to_move": "white" if board.turn == chess.WHITE else "black",
-            "alternatives": alternatives,
-            "legal_move_count": len(legal_moves)
-        }
+from chess_core import guardrails  # noqa: E402
 
-    san_out = board.san(move)
-    uci_out = move.uci()
-    board.push(move)
-    
-    return {
-        "ok": True,
-        "san": san_out,
-        "uci": uci_out,
-        "fen_after": board.fen(),
-        "status": get_game_status(board),
-        "side_to_move": "white" if board.turn == chess.WHITE else "black"
-    }
+mcp = FastMCP("neuro-symbolic-chess")
 
-@app.post("/tools/chess.legal_moves")
-async def chess_legal_moves(request: LegalMovesRequest):
-    """
-    List the legal moves available in a position.
-    """
-    try:
-        board = chess.Board(request.fen)
-    except ValueError as e:
-        return {"isError": True, "content": [{"type": "text", "text": f"Invalid FEN: {str(e)}"}]}
 
-    moves = list(board.legal_moves)
-    
-    if request.from_square:
-        try:
-            from_sq = chess.parse_square(request.from_square)
-            moves = [m for m in moves if m.from_square == from_sq]
-        except ValueError:
-            return {"isError": True, "content": [{"type": "text", "text": f"Invalid from-square: {request.from_square}"}]}
+@mcp.tool(name="chess.move", description="Verify a chess move against a FEN; on legality, return the resulting FEN, status, SAN/UCI. On failure, return up to 6 legal alternatives.")
+def chess_move(fen: str, move: str) -> dict:
+    return guardrails.apply_move(fen, move)
 
-    formatted_moves = [{"san": board.san(m), "uci": m.uci()} for m in moves]
-    
-    return {
-        "to_move": "white" if board.turn == chess.WHITE else "black",
-        "status": get_game_status(board),
-        "count": len(formatted_moves),
-        "moves": formatted_moves
-    }
 
-@app.post("/tools/chess.parse_pgn")
-async def chess_parse_pgn(request: PgnRequest):
-    """
-    Parse a PGN string and return the final FEN, move history, and headers.
-    """
-    pgn_io = io.StringIO(request.pgn)
-    game = chess.pgn.read_game(pgn_io)
-    
-    if game is None:
-        return {"isError": True, "content": [{"type": "text", "text": "Could not parse PGN data."}]}
+@mcp.tool(name="chess.legal_moves", description="List the legal moves available in a position. Optionally restrict to moves leaving a single from-square.")
+def chess_legal_moves(fen: str, from_square: Optional[str] = None) -> dict:
+    return guardrails.list_legal_moves(fen, from_square=from_square)
 
-    board = game.board()
-    moves = []
-    for move in game.mainline_moves():
-        moves.append(board.san(move))
-        board.push(move)
 
-    return {
-        "headers": dict(game.headers),
-        "moves": moves,
-        "final_fen": board.fen(),
-        "status": get_game_status(board),
-        "turn": "white" if board.turn == chess.WHITE else "black"
-    }
+@mcp.tool(name="chess.parse_pgn", description="Parse a PGN string and return headers, the SAN move list, and the final FEN.")
+def chess_parse_pgn(pgn: str) -> dict:
+    return guardrails.parse_pgn(pgn)
 
-@app.post("/tools/chess.get_fen_from_moves")
-async def chess_get_fen_from_moves(request: HistoryRequest):
-    """
-    Calculate the current FEN by applying a list of moves to an initial position.
-    """
-    try:
-        board = chess.Board(request.initial_fen)
-    except ValueError as e:
-        return {"isError": True, "content": [{"type": "text", "text": f"Invalid initial FEN: {str(e)}"}]}
 
-    applied_moves = []
-    for move_str in request.moves:
-        try:
-            try:
-                move = board.parse_san(move_str)
-            except ValueError:
-                move = board.parse_uci(move_str)
-            applied_moves.append(board.san(move))
-            board.push(move)
-        except ValueError:
-            return {
-                "ok": False,
-                "reason": f"Move '{move_str}' is illegal at this stage.",
-                "last_valid_fen": board.fen(),
-                "moves_completed": applied_moves
-            }
+@mcp.tool(name="chess.get_fen_from_moves", description="Replay a sequence of SAN/UCI moves from an initial FEN (default: standard start) and return the resulting FEN.")
+def chess_get_fen_from_moves(moves: list[str], initial_fen: Optional[str] = None) -> dict:
+    return guardrails.apply_move_history(moves, initial_fen=initial_fen or "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
 
-    return {
-        "ok": True,
-        "fen": board.fen(),
-        "status": get_game_status(board),
-        "moves": applied_moves
-    }
 
-@app.get("/tools/chess.board_svg")
-async def chess_board_svg(fen: str):
-    """
-    Returns an SVG representation of the board for the given FEN.
-    """
-    try:
-        board = chess.Board(fen)
-        return {"type": "image/svg+xml", "content": chess.svg.board(board)}
-    except ValueError as e:
-        return {"isError": True, "content": [{"type": "text", "text": f"Invalid FEN: {str(e)}"}]}
+@mcp.tool(name="chess.board_svg", description="Render a position as an SVG board for the given FEN.")
+def chess_board_svg(fen: str, flipped: bool = False) -> dict:
+    return guardrails.board_svg(fen, flipped=flipped)
+
+
+def _run_http(host: str, port: int) -> None:
+    """Optional HTTP transport — useful for curl-debugging the same surface."""
+    from fastapi import FastAPI
+    from pydantic import BaseModel
+    import uvicorn
+
+    app = FastAPI(title="Neuro-Symbolic Chess (HTTP transport)")
+
+    class MoveReq(BaseModel):
+        fen: str
+        move: str
+
+    class LegalReq(BaseModel):
+        fen: str
+        from_square: Optional[str] = None
+
+    class PgnReq(BaseModel):
+        pgn: str
+
+    class HistoryReq(BaseModel):
+        moves: list[str]
+        initial_fen: Optional[str] = None
+
+    @app.post("/tools/chess.move")
+    def _move(req: MoveReq):
+        return guardrails.apply_move(req.fen, req.move)
+
+    @app.post("/tools/chess.legal_moves")
+    def _legal(req: LegalReq):
+        return guardrails.list_legal_moves(req.fen, from_square=req.from_square)
+
+    @app.post("/tools/chess.parse_pgn")
+    def _pgn(req: PgnReq):
+        return guardrails.parse_pgn(req.pgn)
+
+    @app.post("/tools/chess.get_fen_from_moves")
+    def _hist(req: HistoryReq):
+        return guardrails.apply_move_history(req.moves, initial_fen=req.initial_fen or "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+
+    @app.get("/tools/chess.board_svg")
+    def _svg(fen: str, flipped: bool = False):
+        return guardrails.board_svg(fen, flipped=flipped)
+
+    uvicorn.run(app, host=host, port=port)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Neuro-Symbolic Chess MCP server")
+    parser.add_argument("--http", action="store_true", help="Run as HTTP server instead of stdio MCP")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args()
+
+    if args.http:
+        _run_http(args.host, args.port)
+    else:
+        mcp.run()
+
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    main()
