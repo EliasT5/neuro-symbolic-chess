@@ -23,12 +23,12 @@
       "cost_tier": 1,
       "speed": 5,
       "thinking_native": false,
-      "current_elo": 1500,
+      "current_elo": 1480,
       "starting_elo": 1500,
-      "games_played": 0,
+      "games_played": 1,
       "wins": 0,
       "draws": 0,
-      "losses": 0
+      "losses": 1
     },
     {
       "id": "claude-code-haiku",
@@ -119,10 +119,10 @@
       "cost_tier": 1,
       "speed": 5,
       "thinking_native": false,
-      "current_elo": 1500,
+      "current_elo": 1520,
       "starting_elo": 1500,
-      "games_played": 0,
-      "wins": 0,
+      "games_played": 1,
+      "wins": 1,
       "draws": 0,
       "losses": 0
     },
