@@ -52,7 +52,12 @@ Traditional chess engines (like Stockfish) are optimized for mathematical perfec
 ### Stochastic Tactic Trigger (`llm-engine/engine/trigger.py`)
 The probability that System 2 gets to look at a given position:
 
-$$P(\text{Trigger}) = \frac{1}{1 + 10^{(R_T - R_{P\_Taktik}) / 400}}$$
+```
+P(Trigger) = 1 / (1 + 10 ^ ((R_T − R_P_Taktik) / 400))
+```
+
+> `R_T` — position's tactical difficulty in Elo points
+> `R_P_Taktik` — simulated player's tactical sub-Elo
 
 - Easy tactic vs strong tactician → trigger always fires.
 - Hard tactic vs weak tactician → trigger usually doesn't fire, blunder happens organically.
