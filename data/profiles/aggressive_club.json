@@ -1,0 +1,14 @@
+{
+  "name": "Aggressive Club Player (~1700)",
+  "sub_elo": {
+    "tactics": 1750,
+    "strategy": 1550,
+    "endgame": 1500,
+    "opening": 1650
+  },
+  "style": "Aggressive, sharp openings, plays for the attack. Will trade material for initiative. Can overpress in equal positions.",
+  "repertoire_white": ["1.e4", "Italian Game", "King's Gambit (occasionally)"],
+  "repertoire_black": ["Sicilian Najdorf", "King's Indian Defence"],
+  "strengths": ["middlegame attack", "calculation in sharp positions", "opening preparation"],
+  "weaknesses": ["technical endgames", "patience in quiet positions", "defending worse positions"]
+}

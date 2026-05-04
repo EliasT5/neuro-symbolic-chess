@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Neuro-Symbolic Chess · Tournament</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          ink:      { 950: '#0a0d12', 900: '#0d1117', 800: '#11151c', 700: '#171c25', 600: '#1f2630' },
+          slate:    { 50: '#e6e9ef', 100: '#c2c8d4', 200: '#8b95a7', 300: '#5a6478' },
+          accent:   { DEFAULT: '#769656', dark: '#5d7a3f', dim: '#3f5328' },
+          model-c:'#d97757',
+          google:   '#4285f4',
+          model-o:   '#10a37f',
+        },
+        fontFamily: {
+          sans: ['Inter','ui-sans-serif','system-ui','sans-serif'],
+          mono: ['"JetBrains Mono"','ui-monospace','SFMono-Regular','monospace'],
+        },
+      },
+    },
+  };
+</script>
+
+<style>
+  html, body { background: #0a0d12; color: #e6e9ef; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background-image:
+      radial-gradient(circle at 12% -10%, rgba(118,150,86,0.08), transparent 35%),
+      radial-gradient(circle at 88% 110%, rgba(66,133,244,0.06), transparent 40%);
+  }
+  .num    { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .hairline { border-color: #1f2630; }
+  .card { background: #11151c; border: 1px solid #1f2630; border-radius: 10px; }
+  .pill { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 500; letter-spacing: 0.02em; }
+  .badge-T { background: rgba(118,150,86,0.12); color: #b6d493; border: 1px solid rgba(118,150,86,0.35); padding: 0.05rem 0.4rem; border-radius: 4px; font-size: 0.65rem; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+  .family-stripe { width: 3px; border-radius: 2px; align-self: stretch; }
+  .stripe-model-c { background: #d97757; }
+  .stripe-google    { background: #4285f4; }
+  .stripe-model-o    { background: #10a37f; }
+  .tab-btn[aria-selected="true"] { color: #e6e9ef; border-bottom-color: #769656; }
+  .tab-btn { color: #8b95a7; border-bottom: 2px solid transparent; transition: color .15s, border-color .15s; }
+  .tab-btn:hover { color: #c2c8d4; }
+  th.sort:hover { color: #e6e9ef; cursor: pointer; }
+  th.sort .arrow { opacity: 0.35; margin-left: 0.25rem; font-size: 0.7rem; }
+  th.sort.active .arrow { opacity: 1; color: #769656; }
+  tbody tr:hover { background: #141923; }
+  .empty-state {
+    border: 1px dashed #1f2630;
+    border-radius: 10px;
+    padding: 3rem 2rem;
+    text-align: center;
+    color: #5a6478;
+  }
+  .empty-state .glyph { font-size: 2.5rem; opacity: 0.35; margin-bottom: 0.5rem; }
+  .gridlines { background-image:
+    linear-gradient(to right, rgba(31,38,48,0.5) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(31,38,48,0.5) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .delta-up   { color: #769656; }
+  .delta-down { color: #c66767; }
+  .delta-zero { color: #5a6478; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- ─── HEADER ─────────────────────────────────────────────────────────── -->
+<header class="border-b hairline">
+  <div class="max-w-7xl mx-auto px-6 py-8">
+    <div class="flex items-baseline gap-3">
+      <span class="text-accent text-xs uppercase tracking-[0.2em] font-mono">Neuro-Symbolic Chess</span>
+      <span class="text-slate-300 text-xs">·</span>
+      <span class="text-slate-200 text-xs uppercase tracking-[0.15em]">Tournament Ledger</span>
+    </div>
+    <h1 class="mt-3 text-3xl md:text-4xl font-semibold tracking-tight">Strength League</h1>
+    <p class="mt-2 text-slate-200 max-w-2xl text-sm leading-relaxed">
+      Eighteen LLM variants, each starting at <span class="num text-slate-50">1500</span> Elo, play one another to
+      establish a baseline of native chess strength. The winner indicates the strongest pretrained chess intuition
+      we can draw on; the loser indicates the cleanest slate to fine-tune from scratch.
+    </p>
+  </div>
+</header>
+
+<!-- ─── META STRIP ─────────────────────────────────────────────────────── -->
+<section class="max-w-7xl mx-auto px-6 mt-8">
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+    <div class="card px-4 py-3"><div class="text-[0.65rem] uppercase tracking-wider text-slate-300">Contestants</div><div class="num text-2xl font-semibold mt-1" id="meta-contestants">—</div></div>
+    <div class="card px-4 py-3"><div class="text-[0.65rem] uppercase tracking-wider text-slate-300">Games Played</div><div class="num text-2xl font-semibold mt-1" id="meta-games">—</div></div>
+    <div class="card px-4 py-3"><div class="text-[0.65rem] uppercase tracking-wider text-slate-300">Total Spend</div><div class="num text-2xl font-semibold mt-1" id="meta-spend">—</div></div>
+    <div class="card px-4 py-3"><div class="text-[0.65rem] uppercase tracking-wider text-slate-300">Tokens</div><div class="num text-2xl font-semibold mt-1" id="meta-tokens">—</div></div>
+    <div class="card px-4 py-3"><div class="text-[0.65rem] uppercase tracking-wider text-slate-300">Elo Leader</div><div class="text-base font-semibold mt-1 truncate" id="meta-leader">—</div></div>
+  </div>
+</section>
+
+<!-- ─── TABS ───────────────────────────────────────────────────────────── -->
+<nav class="max-w-7xl mx-auto px-6 mt-10 border-b hairline">
+  <div class="flex gap-7 text-sm font-medium">
+    <button class="tab-btn py-3" data-tab="standings" aria-selected="true">Standings</button>
+    <button class="tab-btn py-3" data-tab="games"     aria-selected="false">Games</button>
+    <button class="tab-btn py-3" data-tab="charts"    aria-selected="false">Charts</button>
+    <button class="tab-btn py-3" data-tab="about"     aria-selected="false">About</button>
+  </div>
+</nav>
+
+<main class="max-w-7xl mx-auto px-6 py-8">
+
+  <!-- ─── STANDINGS TAB ───────────────────────────────────────────────── -->
+  <section data-pane="standings">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="text-lg font-semibold">Leaderboard</h2>
+        <p class="text-xs text-slate-300 mt-1">Click a column header to sort. K-factor: <span class="num">40</span> for the first 30 games per model, then <span class="num">20</span> (FIDE convention).</p>
+      </div>
+      <div class="flex gap-2 text-[0.65rem]">
+        <span class="pill" style="background: rgba(217,119,87,0.10); color: #ecaa86; border: 1px solid rgba(217,119,87,0.35)">Model-C</span>
+        <span class="pill" style="background: rgba(66,133,244,0.10); color: #8ab4f8; border: 1px solid rgba(66,133,244,0.35)">Google</span>
+        <span class="pill" style="background: rgba(16,163,127,0.10); color: #5dd1ad; border: 1px solid rgba(16,163,127,0.35)">Model-O</span>
+      </div>
+    </div>
+
+    <div class="card overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="text-[0.7rem] uppercase tracking-wider text-slate-300 bg-ink-700">
+          <tr>
+            <th class="px-4 py-3 text-left">#</th>
+            <th class="px-3 py-3 text-left">Model</th>
+            <th class="px-3 py-3 text-left">Family</th>
+            <th class="sort px-3 py-3 text-right" data-sort="current_elo">Elo<span class="arrow">▼</span></th>
+            <th class="sort px-3 py-3 text-right" data-sort="elo_delta">Δ<span class="arrow"></span></th>
+            <th class="sort px-3 py-3 text-right" data-sort="games_played">G<span class="arrow"></span></th>
+            <th class="sort px-3 py-3 text-right" data-sort="wins">W<span class="arrow"></span></th>
+            <th class="sort px-3 py-3 text-right" data-sort="draws">D<span class="arrow"></span></th>
+            <th class="sort px-3 py-3 text-right" data-sort="losses">L<span class="arrow"></span></th>
+            <th class="sort px-3 py-3 text-right" data-sort="score_pct">Score%<span class="arrow"></span></th>
+            <th class="sort px-3 py-3 text-right" data-sort="illegal_rate">Illegal%<span class="arrow"></span></th>
+            <th class="sort px-3 py-3 text-right" data-sort="fallback_rate">Fallback%<span class="arrow"></span></th>
+            <th class="sort px-3 py-3 text-right" data-sort="cost_per_game">$/Game<span class="arrow"></span></th>
+            <th class="sort px-3 py-3 text-right" data-sort="cost_per_elo">$/Elo<span class="arrow"></span></th>
+          </tr>
+        </thead>
+        <tbody id="standings-body" class="divide-y divide-ink-600/60"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ─── GAMES TAB ───────────────────────────────────────────────────── -->
+  <section data-pane="games" hidden>
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="text-lg font-semibold">Game Log</h2>
+        <p class="text-xs text-slate-300 mt-1">Append-only record of every game played. Click a row for the full PGN, board stepper, and per-move trace.</p>
+      </div>
+    </div>
+
+    <div id="games-empty" class="empty-state">
+      <div class="glyph num">♚</div>
+      <div class="text-sm text-slate-200 font-medium">No games played yet</div>
+      <div class="text-xs mt-1">The first match will appear here once the tournament runner is dispatched.</div>
+    </div>
+
+    <div id="games-table-wrap" class="card overflow-hidden" hidden>
+      <table class="w-full text-sm">
+        <thead class="text-[0.7rem] uppercase tracking-wider text-slate-300 bg-ink-700">
+          <tr>
+            <th class="px-4 py-3 text-left">#</th>
+            <th class="px-3 py-3 text-left">Date</th>
+            <th class="px-3 py-3 text-left">White</th>
+            <th class="px-3 py-3 text-left">Black</th>
+            <th class="px-3 py-3 text-center">Result</th>
+            <th class="px-3 py-3 text-right">Δ W</th>
+            <th class="px-3 py-3 text-right">Δ B</th>
+            <th class="px-3 py-3 text-right">Moves</th>
+            <th class="px-3 py-3 text-left">Termination</th>
+            <th class="px-3 py-3 text-left">Opening</th>
+            <th class="px-3 py-3 text-right">Cost</th>
+            <th class="px-3 py-3 text-right">Tokens</th>
+          </tr>
+        </thead>
+        <tbody id="games-body" class="divide-y divide-ink-600/60"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ─── CHARTS TAB ──────────────────────────────────────────────────── -->
+  <section data-pane="charts" hidden>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="card p-5">
+        <div class="flex items-baseline justify-between">
+          <h3 class="text-sm font-semibold">Elo over time</h3>
+          <span class="text-[0.65rem] uppercase tracking-wider text-slate-300">one line per model</span>
+        </div>
+        <div class="mt-4 h-72 relative gridlines rounded">
+          <canvas id="chart-elo-time"></canvas>
+          <div id="chart-elo-time-empty" class="absolute inset-0 flex items-center justify-center text-slate-300 text-xs">awaiting first games</div>
+        </div>
+      </div>
+
+      <div class="card p-5">
+        <div class="flex items-baseline justify-between">
+          <h3 class="text-sm font-semibold">Cost per Elo gained</h3>
+          <span class="text-[0.65rem] uppercase tracking-wider text-slate-300">value chart</span>
+        </div>
+        <div class="mt-4 h-72 relative gridlines rounded">
+          <canvas id="chart-cost-elo"></canvas>
+          <div id="chart-cost-elo-empty" class="absolute inset-0 flex items-center justify-center text-slate-300 text-xs">awaiting first games</div>
+        </div>
+      </div>
+
+      <div class="card p-5">
+        <div class="flex items-baseline justify-between">
+          <h3 class="text-sm font-semibold">Avg centipawn loss per move</h3>
+          <span class="text-[0.65rem] uppercase tracking-wider text-slate-300">post-hoc Stockfish · lower = better</span>
+        </div>
+        <div class="mt-4 h-72 relative gridlines rounded">
+          <canvas id="chart-cpl"></canvas>
+          <div id="chart-cpl-empty" class="absolute inset-0 flex items-center justify-center text-slate-300 text-xs">awaiting first games</div>
+        </div>
+      </div>
+
+      <div class="card p-5">
+        <div class="flex items-baseline justify-between">
+          <h3 class="text-sm font-semibold">Head-to-head matrix</h3>
+          <span class="text-[0.65rem] uppercase tracking-wider text-slate-300">row vs column · score %</span>
+        </div>
+        <div class="mt-4 min-h-72">
+          <div id="h2h-empty" class="empty-state h-full flex flex-col items-center justify-center">
+            <div class="glyph num">⌗</div>
+            <div class="text-xs">awaiting first games</div>
+          </div>
+          <div id="h2h-grid" hidden></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── ABOUT TAB ───────────────────────────────────────────────────── -->
+  <section data-pane="about" hidden class="prose prose-invert max-w-none text-sm">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="card p-6">
+        <h3 class="text-base font-semibold mb-2 text-slate-50">Methodology</h3>
+        <ul class="text-slate-100 space-y-2 leading-relaxed">
+          <li>Every contestant starts at <span class="num">1500</span> Elo.</li>
+          <li>K-factor is <span class="num">40</span> for each model's first 30 rated games (or until rating reaches 2300), then <span class="num">20</span>. FIDE convention.</li>
+          <li>Self-play games are played for diagnostic purposes but do not move Elo.</li>
+          <li>Colors are alternated by a round-robin scheduler so no model accumulates a White advantage.</li>
+          <li>Time control: <span class="num">60</span>s per move soft cap; per-move token budget guards against runaway cost.</li>
+          <li>Every move is validated by the <code class="text-accent">chess_core.guardrails</code> primitives — illegal proposals are retried once, then the engine falls back to a uniformly random legal move (counted as a fallback).</li>
+        </ul>
+      </div>
+
+      <div class="card p-6">
+        <h3 class="text-base font-semibold mb-2 text-slate-50">Thinking variants</h3>
+        <p class="text-slate-100 leading-relaxed">
+          Each base model is also entered as a <em>(thinking)</em> variant. The thinking variant prepends a uniform
+          prompt scaffold asking the model to reason inside <code>&lt;thinking&gt;...&lt;/thinking&gt;</code> tags before
+          committing to a move. The block is captured (for later inspection) and stripped before the move is parsed.
+        </p>
+        <p class="mt-3 text-slate-100 leading-relaxed">
+          This is provider-agnostic by design: every model gets the same scaffold so the Elo gap between
+          <span class="num">base</span> and <span class="num">thinking</span> is a clean measurement of "what a few hundred
+          extra reasoning tokens buy in chess." Models with <em>native</em> extended thinking (Opus, Sonnet 4.6,
+          Model-G 3 Pro/Auto, Model-O 5.5/5.3 Model-X) will simply benefit more from it.
+        </p>
+      </div>
+
+      <div class="card p-6">
+        <h3 class="text-base font-semibold mb-2 text-slate-50">What we measure</h3>
+        <dl class="space-y-3 text-slate-100">
+          <div><dt class="font-medium text-slate-50">Elo & score %</dt><dd>Strength as inferred from match results.</dd></div>
+          <div><dt class="font-medium text-slate-50">Illegal-move rate</dt><dd>Fraction of LLM proposals the guardrails rejected. Drunken-Robot Syndrome, but for legality.</dd></div>
+          <div><dt class="font-medium text-slate-50">Fallback rate</dt><dd>Fraction of moves that ended up at the random-legal escape hatch (after one retry failed).</dd></div>
+          <div><dt class="font-medium text-slate-50">$/Elo</dt><dd>Total dollars spent divided by Elo points gained over 1500. The value chart — the cheap-but-decent winner.</dd></div>
+          <div><dt class="font-medium text-slate-50">Centipawn loss</dt><dd>Average loss-vs-best-move per move, computed post-hoc with Stockfish. The gold-standard chess strength metric.</dd></div>
+          <div><dt class="font-medium text-slate-50">Style fingerprint</dt><dd>Capture %, check %, average game length, decisiveness — what the model likes to play, regardless of strength.</dd></div>
+        </dl>
+      </div>
+
+      <div class="card p-6">
+        <h3 class="text-base font-semibold mb-2 text-slate-50">Why we want both extremes</h3>
+        <p class="text-slate-100 leading-relaxed">
+          The strongest model tells us which base has the deepest pretrained chess prior — it's the cheapest path
+          to a competent System 1. The weakest model tells us which base is the cleanest slate, the best candidate
+          for a from-scratch fine-tune that won't be fighting prior knowledge. Either end of the distribution is
+          research-useful; the middle is the part we can ignore.
+        </p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="max-w-7xl mx-auto px-6 py-10 text-xs text-slate-300 border-t hairline mt-10">
+  <div class="flex justify-between items-center">
+    <div>Generated from <code>data/tournament/players.json</code> &amp; <code>data/tournament/games.json</code>.</div>
+    <div>Strength League · v1 · <a class="text-accent hover:underline" href="../README.md">project README</a></div>
+  </div>
+</footer>
+
+<!-- ─── BEHAVIOUR ──────────────────────────────────────────────────────── -->
+<script>
+const FAMILY_COLORS = { model-c: '#d97757', google: '#4285f4', model-o: '#10a37f' };
+const FAMILY_LABELS = { model-c: 'Model-C', google: 'Google',  model-o: 'Model-O'    };
+
+let STATE = {
+  players: [],
+  games: [],
+  config: {},
+  sort: { key: 'current_elo', dir: 'desc' },
+};
+
+// ─── Loading ────────────────────────────────────────────────────────────
+async function loadData() {
+  try {
+    const [playersResp, gamesResp] = await Promise.all([
+      fetch('../data/tournament/players.json'),
+      fetch('../data/tournament/games.json'),
+    ]);
+    const playersDoc = await playersResp.json();
+    const gamesDoc   = await gamesResp.json();
+    STATE.players = playersDoc.models;
+    STATE.config  = playersDoc.config;
+    STATE.games   = gamesDoc.games || [];
+  } catch (err) {
+    showLoadError(err);
+    throw err;
+  }
+}
+
+function showLoadError(err) {
+  document.body.innerHTML = `
+    <div class="min-h-screen flex items-center justify-center px-6">
+      <div class="max-w-xl card p-8">
+        <h1 class="text-lg font-semibold text-slate-50">Cannot load tournament data</h1>
+        <p class="mt-2 text-sm text-slate-200">
+          Browsers block <code>fetch()</code> on <code>file://</code> URLs. Serve the repo locally:
+        </p>
+        <pre class="mt-3 num text-xs bg-ink-900 border hairline rounded p-3 overflow-x-auto">cd /opt/jerome-workspaces/.../neuro-symbolic-chess
+python3 -m http.server 8765
+open http://localhost:8765/docs/tournament.html</pre>
+        <p class="mt-3 text-xs text-slate-300">Underlying error: ${(err && err.message) || err}</p>
+      </div>
+    </div>`;
+}
+
+// ─── Stats derivation ───────────────────────────────────────────────────
+function deriveStats() {
+  const byKey = Object.fromEntries(STATE.players.map(p => [p.key, {
+    ...p,
+    elo_delta:    p.current_elo - p.starting_elo,
+    games_played: p.games_played,
+    score_pct:    p.games_played ? ((p.wins + 0.5 * p.draws) / p.games_played) * 100 : null,
+    cost_total:   0,
+    tokens_total: 0,
+    illegal_total:0,
+    fallback_total:0,
+    moves_total:  0,
+  }]));
+
+  for (const g of STATE.games) {
+    for (const side of ['white','black']) {
+      const k = `${g[side].id}@${g[side].variant}`;
+      const s = g.stats?.[side] ?? {};
+      const r = byKey[k];
+      if (!r) continue;
+      r.cost_total     += s.cost     ?? 0;
+      r.tokens_total   += s.tokens   ?? 0;
+      r.illegal_total  += s.illegal_moves ?? 0;
+      r.fallback_total += s.fallbacks     ?? 0;
+      r.moves_total    += s.moves    ?? Math.ceil((g.moves?.length ?? 0) / 2);
+    }
+  }
+
+  for (const r of Object.values(byKey)) {
+    r.illegal_rate  = r.moves_total ? (r.illegal_total / r.moves_total) * 100 : null;
+    r.fallback_rate = r.moves_total ? (r.fallback_total / r.moves_total) * 100 : null;
+    r.cost_per_game = r.games_played ? r.cost_total / r.games_played : null;
+    r.cost_per_elo  = r.elo_delta > 0 ? r.cost_total / r.elo_delta : null;
+  }
+  return Object.values(byKey);
+}
+
+// ─── Rendering: meta strip ──────────────────────────────────────────────
+function renderMeta(rows) {
+  document.getElementById('meta-contestants').textContent = rows.length;
+  document.getElementById('meta-games').textContent = STATE.games.length;
+  const spend  = rows.reduce((a,r) => a + (r.cost_total || 0), 0);
+  const tokens = rows.reduce((a,r) => a + (r.tokens_total || 0), 0);
+  document.getElementById('meta-spend').textContent = '$' + spend.toFixed(4);
+  document.getElementById('meta-tokens').textContent = tokens.toLocaleString();
+  const leader = [...rows].sort((a,b) => b.current_elo - a.current_elo)[0];
+  if (leader && STATE.games.length > 0) {
+    document.getElementById('meta-leader').textContent = `${leader.display_name} · ${leader.current_elo}`;
+  } else {
+    document.getElementById('meta-leader').textContent = '— (all tied at 1500)';
+    document.getElementById('meta-leader').className = 'text-base font-medium mt-1 text-slate-300';
+  }
+}
+
+// ─── Rendering: standings ──────────────────────────────────────────────
+function renderStandings(rows) {
+  const sortKey = STATE.sort.key, dir = STATE.sort.dir === 'desc' ? -1 : 1;
+  rows = [...rows].sort((a,b) => {
+    const av = a[sortKey], bv = b[sortKey];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return av < bv ? -dir : av > bv ? dir : 0;
+  });
+
+  // Indicators on headers
+  document.querySelectorAll('th.sort').forEach(th => {
+    th.classList.toggle('active', th.dataset.sort === sortKey);
+    const arrow = th.querySelector('.arrow');
+    if (th.dataset.sort === sortKey) arrow.textContent = STATE.sort.dir === 'desc' ? '▼' : '▲';
+    else arrow.textContent = '';
+  });
+
+  const fmt = (v, dp=0, pad='—') => v == null ? `<span class="text-slate-300">${pad}</span>` : v.toFixed(dp);
+  const fmtPct = v => v == null ? `<span class="text-slate-300">—</span>` : v.toFixed(1) + '%';
+  const fmtMoney = v => v == null ? `<span class="text-slate-300">—</span>` : '$' + v.toFixed(4);
+  const deltaCls = d => d > 0 ? 'delta-up' : d < 0 ? 'delta-down' : 'delta-zero';
+  const deltaStr = d => d == null ? '—' : (d > 0 ? '+' : '') + d.toString();
+
+  const tbody = document.getElementById('standings-body');
+  tbody.innerHTML = rows.map((r, i) => `
+    <tr>
+      <td class="px-4 py-2.5 num text-slate-300">${i + 1}</td>
+      <td class="px-3 py-2.5">
+        <div class="flex items-center gap-2">
+          <div class="family-stripe stripe-${r.family}"></div>
+          <div>
+            <div class="text-slate-50 font-medium">${r.display_name.replace(/\s\(thinking\)$/, '')}${r.variant === 'thinking' ? ' <span class="badge-T">T</span>' : ''}</div>
+            <div class="text-[0.7rem] text-slate-300 num">${r.id}</div>
+          </div>
+        </div>
+      </td>
+      <td class="px-3 py-2.5">
+        <span class="pill" style="background: ${FAMILY_COLORS[r.family]}1a; color: ${FAMILY_COLORS[r.family]}; border: 1px solid ${FAMILY_COLORS[r.family]}55;">
+          ${FAMILY_LABELS[r.family]}
+        </span>
+      </td>
+      <td class="px-3 py-2.5 num text-right text-slate-50 font-medium">${r.current_elo}</td>
+      <td class="px-3 py-2.5 num text-right ${deltaCls(r.elo_delta)}">${deltaStr(r.elo_delta)}</td>
+      <td class="px-3 py-2.5 num text-right">${r.games_played}</td>
+      <td class="px-3 py-2.5 num text-right">${r.wins}</td>
+      <td class="px-3 py-2.5 num text-right">${r.draws}</td>
+      <td class="px-3 py-2.5 num text-right">${r.losses}</td>
+      <td class="px-3 py-2.5 num text-right">${fmtPct(r.score_pct)}</td>
+      <td class="px-3 py-2.5 num text-right">${fmtPct(r.illegal_rate)}</td>
+      <td class="px-3 py-2.5 num text-right">${fmtPct(r.fallback_rate)}</td>
+      <td class="px-3 py-2.5 num text-right">${fmtMoney(r.cost_per_game)}</td>
+      <td class="px-3 py-2.5 num text-right">${fmtMoney(r.cost_per_elo)}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── Rendering: games ──────────────────────────────────────────────────
+function renderGames() {
+  const empty = document.getElementById('games-empty');
+  const wrap  = document.getElementById('games-table-wrap');
+  if (STATE.games.length === 0) { empty.hidden = false; wrap.hidden = true; return; }
+  empty.hidden = true; wrap.hidden = false;
+
+  const playerByKey = Object.fromEntries(STATE.players.map(p => [p.key, p]));
+  const fmtSide = side => {
+    const k = `${side.id}@${side.variant}`;
+    const p = playerByKey[k];
+    if (!p) return k;
+    return `<span class="inline-flex items-center gap-1.5">
+      <span class="family-stripe stripe-${p.family}" style="height:14px"></span>
+      <span class="text-slate-50">${p.display_name}</span>
+    </span>`;
+  };
+
+  document.getElementById('games-body').innerHTML = STATE.games.map((g, i) => {
+    const dW = g.elo_after?.white - g.elo_before?.white;
+    const dB = g.elo_after?.black - g.elo_before?.black;
+    const dCls = d => d > 0 ? 'delta-up' : d < 0 ? 'delta-down' : 'delta-zero';
+    const dStr = d => isNaN(d) ? '—' : (d > 0 ? '+' : '') + d;
+    const cost = (g.stats?.white?.cost ?? 0) + (g.stats?.black?.cost ?? 0);
+    const tok  = (g.stats?.white?.tokens ?? 0) + (g.stats?.black?.tokens ?? 0);
+    return `
+      <tr>
+        <td class="px-4 py-2.5 num text-slate-300">${i + 1}</td>
+        <td class="px-3 py-2.5 num text-slate-200 text-xs">${(g.date || '').replace('T', ' ').slice(0, 16)}</td>
+        <td class="px-3 py-2.5">${fmtSide(g.white)}</td>
+        <td class="px-3 py-2.5">${fmtSide(g.black)}</td>
+        <td class="px-3 py-2.5 text-center num font-medium">${g.result}</td>
+        <td class="px-3 py-2.5 num text-right ${dCls(dW)}">${dStr(dW)}</td>
+        <td class="px-3 py-2.5 num text-right ${dCls(dB)}">${dStr(dB)}</td>
+        <td class="px-3 py-2.5 num text-right">${g.moves?.length ?? '—'}</td>
+        <td class="px-3 py-2.5 text-xs text-slate-200">${g.termination || '—'}</td>
+        <td class="px-3 py-2.5 text-xs text-slate-300 num">${g.opening || '—'}</td>
+        <td class="px-3 py-2.5 num text-right">$${cost.toFixed(4)}</td>
+        <td class="px-3 py-2.5 num text-right">${tok.toLocaleString()}</td>
+      </tr>`;
+  }).join('');
+}
+
+// ─── Rendering: charts ──────────────────────────────────────────────────
+let charts = {};
+function renderCharts(rows) {
+  const hasGames = STATE.games.length > 0;
+  ['chart-elo-time','chart-cost-elo','chart-cpl'].forEach(id => {
+    document.getElementById(id + '-empty').hidden = hasGames;
+  });
+  document.getElementById('h2h-empty').hidden = hasGames;
+  document.getElementById('h2h-grid').hidden  = !hasGames;
+  if (!hasGames) return;
+  // Real chart code lives here once we have at least one game.
+  // Intentionally left as a placeholder — see About > Methodology.
+}
+
+// ─── Tab plumbing ───────────────────────────────────────────────────────
+function setupTabs() {
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.setAttribute('aria-selected', 'false'));
+      btn.setAttribute('aria-selected', 'true');
+      const tab = btn.dataset.tab;
+      document.querySelectorAll('section[data-pane]').forEach(s => {
+        s.hidden = s.dataset.pane !== tab;
+      });
+    });
+  });
+}
+function setupSort() {
+  document.querySelectorAll('th.sort').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      if (STATE.sort.key === key) {
+        STATE.sort.dir = STATE.sort.dir === 'desc' ? 'asc' : 'desc';
+      } else {
+        STATE.sort.key = key; STATE.sort.dir = 'desc';
+      }
+      renderStandings(deriveStats());
+    });
+  });
+}
+
+// ─── Boot ───────────────────────────────────────────────────────────────
+(async () => {
+  await loadData();
+  const rows = deriveStats();
+  renderMeta(rows);
+  renderStandings(rows);
+  renderGames();
+  renderCharts(rows);
+  setupTabs();
+  setupSort();
+})();
+</script>
+
+</body>
+</html>

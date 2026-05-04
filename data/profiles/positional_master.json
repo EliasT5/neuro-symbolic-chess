@@ -1,0 +1,14 @@
+{
+  "name": "Positional Master (~2200)",
+  "sub_elo": {
+    "tactics": 2100,
+    "strategy": 2300,
+    "endgame": 2350,
+    "opening": 2150
+  },
+  "style": "Quiet, prophylactic, prefers small advantages and technique. Avoids tactical melees in favour of squeezing rook endgames.",
+  "repertoire_white": ["1.d4", "Catalan", "Queen's Gambit Declined main lines"],
+  "repertoire_black": ["Caro-Kann", "Nimzo-Indian"],
+  "strengths": ["endgame technique", "long-term planning", "prophylaxis"],
+  "weaknesses": ["sharp tactical melees", "novelty under time pressure"]
+}
