@@ -148,3 +148,4 @@ cython_debug/
 
 # PyCharm
 .idea/
+.codex
